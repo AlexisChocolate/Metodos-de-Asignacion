@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <link rel="stylesheet" href="_ds/modernist-0ecf8e99-b105-4720-8295-6e81edc109e4/styles.css">
+  <script src="_ds/modernist-0ecf8e99-b105-4720-8295-6e81edc109e4/_ds_bundle.js"></script>
+  <style>
+    body{margin:0}
+    a{color:var(--color-accent);text-underline-offset:3px}
+    a:hover{color:var(--color-accent-600)}
+    @keyframes simPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent)}50%{box-shadow:0 0 0 7px transparent}}
+    .sim-cursor{animation:simPulse 0.7s ease-in-out infinite;outline:3px solid var(--color-text);outline-offset:2px;position:relative;z-index:2}
+    .sim-visited{outline:2px solid var(--color-divider);outline-offset:1px}
+    @keyframes toastIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .sim-toast{animation:toastIn 0.2s ease-out}
+    .seg-opt { font-size: 11.5px; padding: 4px 6px; }
+  </style>
+</helmet>
+<div style="height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden">
+
+  <header style="width:100%;flex:none">
+    <h1 style="font-size:22px;margin-bottom:2px">Métodos de asignación de espacio en disco</h1>
+    <p class="text-muted" style="max-width:64ch;margin-bottom:var(--space-2);font-size:12.5px">Crea y elimina archivos, y observa cómo cada técnica reparte y recorre los bloques del disco.</p>
+    <div class="hr" style="margin:var(--space-2) 0"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap;padding:var(--space-2) 0">
+      <div style="display:flex;align-items:center;gap:var(--space-2)">
+        <label for="method-select" style="font-size:13px;font-weight:600;white-space:nowrap">Método:</label>
+        <select id="method-select" class="input" style="min-width:200px;font-size:13px" value="{{currentMethod}}" onChange="{{onMethodChange}}">
+          <option value="contigua">Contigua</option>
+          <option value="enlazada">Enlazada</option>
+          <option value="indexada">Indexada</option>
+          <option value="extensiones">Extensiones</option>
+          <option value="multinivel">Multinivel</option>
+          <option value="fat">FAT</option>
+          <option value="bitmap">Mapa de bits (Bitmap)</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:var(--space-4)">
+        <sc-if value="{{isIndexada}}" hint-placeholder-val="{{true}}">
+          <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:var(--space-1);cursor:pointer;background:var(--color-surface);padding:var(--space-1) var(--space-2);border-radius:4px;border:1px solid var(--color-divider)">
+            <input type="checkbox" checked="{{useRamCache}}" onChange="{{toggleRamCache}}" />
+            Usar Caché RAM (Modo Real)
+          </label>
+        </sc-if>
+        <p style="margin:0;font-size:13px" class="text-muted">{{methodCaption}}</p>
+      </div>
+    </div>
+  </header>
+
+  <main style="width:100%;display:grid;grid-template-columns:280px 1fr 340px;gap:var(--space-4);flex:1;min-height:0">
+
+    <div style="display:flex;flex-direction:column;gap:var(--space-3);min-height:0;overflow:auto">
+
+      <div class="card" style="padding:var(--space-3)">
+        <div class="card-kicker">Crear archivo</div>
+        <div style="display:flex; gap:var(--space-2); margin-bottom:var(--space-3)">
+          <div class="field" style="flex:1">
+            <label for="sim-size">Tamaño</label>
+            <input class="input" id="sim-size" type="number" min="1" value="{{sizeInput}}" onChange="{{onSizeChange}}" />
+          </div>
+          <div class="field" style="flex:1">
+            <label for="sim-start">Inicio (opc)</label>
+            <input class="input" id="sim-start" type="number" min="0" value="{{startInput}}" onChange="{{onStartChange}}" placeholder="Auto" />
+          </div>
+        </div>
+        <sc-if value="{{hasError}}" hint-placeholder-val="{{false}}">
+          <div class="sim-toast" style="background:var(--color-accent-100);color:var(--color-accent-800);border:1px solid var(--color-accent-300);padding:var(--space-2) var(--space-3);font-size:12.5px;line-height:1.4;margin-bottom:var(--space-3)">{{errorText}}</div>
+        </sc-if>
+        <button type="button" class="btn btn-primary btn-block" onClick="{{createFile}}" disabled="{{autoRunning}}">Crear archivo<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+        <div class="hr" style="margin:var(--space-3) 0"></div>
+        <sc-if value="{{autoRunning}}" hint-placeholder-val="{{false}}">
+          <button type="button" class="btn btn-secondary btn-block" onClick="{{stopAutoDemo}}">Detener demo</button>
+        </sc-if>
+        <sc-if value="{{notAutoRunning}}" hint-placeholder-val="{{true}}">
+          <button type="button" class="btn btn-ghost btn-block" onClick="{{runAutoDemo}}">Demo automática<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+        </sc-if>
+        <p class="text-muted" style="font-size:11px;margin:var(--space-2) 0 0;line-height:1.4">Crea 6 archivos, borra 2 y pide uno grande — cambia de pestaña para ver a cuál método le falla.</p>
+      </div>
+
+      <div class="card" style="padding:var(--space-3)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <div class="card-kicker" style="margin-bottom:0">Archivos ({{fileCount}})</div>
+        </div>
+        <div class="hr" style="margin:var(--space-2) 0 var(--space-2)"></div>
+        <sc-if value="{{hasFiles}}" hint-placeholder-val="{{true}}">
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{viewFiles}}" as="file" hint-placeholder-count="2">
+              <div style="padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+                <div style="display:flex;align-items:center;gap:var(--space-2)">
+                  <div style="width:14px;height:14px;flex:none;background:{{file.color}}"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-family:var(--font-heading);font-weight:700;font-size:13.5px">Archivo {{file.name}}</div>
+                    <div class="text-muted" style="font-size:11.5px">{{file.size}} bloques</div>
+                    <div class="text-muted" style="font-size:11px; margin-top:2px">{{file.dirTable}}</div>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-icon" aria-label="Leer" onClick="{{file.onRead}}" disabled="{{autoRunning}}" style="width:30px;height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+                  <button type="button" class="btn btn-ghost btn-icon" aria-label="Eliminar" onClick="{{file.onDelete}}" disabled="{{autoRunning}}" style="width:30px;height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+                </div>
+                <sc-if value="{{file.isReading}}" hint-placeholder-val="{{false}}">
+                  <div style="font-size:11px;color:var(--color-accent-700);margin-top:var(--space-1)">Leyendo · {{file.readingLabel}}</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{hasNoFiles}}" hint-placeholder-val="{{false}}">
+          <p class="text-muted" style="font-size:12.5px;margin:0">Sin archivos todavía.</p>
+        </sc-if>
+      </div>
+
+      <div class="card" style="padding:var(--space-3)">
+        <div class="card-kicker">Bloques del disco</div>
+        <div style="display:flex;height:8px;overflow:hidden;margin:var(--space-2) 0">
+          <div style="width:{{usedPercent}}%;background:var(--color-text)"></div>
+          <div style="width:{{freePercent}}%;background:var(--color-neutral-300)"></div>
+        </div>
+        <p class="text-muted" style="font-size:12.5px;margin:0">{{usedCount}} usados · {{freeCount}} libres de {{totalBlocks}}</p>
+      </div>
+
+      <sc-if value="{{isFat}}" hint-placeholder-val="{{false}}">
+        <div class="card" style="padding:var(--space-3)">
+          <div class="card-kicker">Tabla FAT (En RAM)</div>
+          <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;margin-top:var(--space-2)">
+            <sc-for list="{{fatTable}}" as="entry" hint-placeholder-count="100">
+               <div style="font-size:8.5px;font-weight:700;font-family:monospace;background:{{entry.bg}};color:{{entry.color}};text-align:center;padding:3px 0;border-radius:2px;min-height:14px;display:flex;align-items:center;justify-content:center" title="Bloque {{entry.index}} -> {{entry.val}}">
+                 {{entry.val}}
+               </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isBitmap}}" hint-placeholder-val="{{false}}">
+        <div class="card" style="padding:var(--space-3)">
+          <div class="card-kicker">Mapa de Bits (En RAM)</div>
+          <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;margin-top:var(--space-2)">
+            <sc-for list="{{bitmapTable}}" as="bit" hint-placeholder-count="100">
+               <div style="font-size:9px;font-family:monospace;font-weight:700;background:{{bit.bg}};color:{{bit.color}};text-align:center;padding:3px 0;border-radius:2px" title="Bloque {{bit.index}}">
+                 {{bit.val}}
+               </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;padding:var(--space-3) var(--space-4);overflow:hidden">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;flex:none">
+        <div class="card-title" style="margin-bottom:0;font-size:18px">{{methodLabel}}</div>
+        <div style="display:flex; gap:var(--space-2)">
+          <sc-if value="{{isDefragmentable}}" hint-placeholder-val="{{false}}">
+            <button type="button" class="btn btn-ghost" onClick="{{defragment}}" disabled="{{autoRunning}}" style="font-size:12.5px; color:var(--color-text)">Compactar</button>
+          </sc-if>
+          <button type="button" class="btn btn-ghost" onClick="{{resetMethod}}" disabled="{{autoRunning}}" style="font-size:12.5px">Vaciar disco<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.64-6.36"/><path d="M3 4v5h5"/></svg></button>
+        </div>
+      </div>
+      <sc-if value="{{autoRunning}}" hint-placeholder-val="{{false}}">
+        <div style="background:var(--color-accent-100);color:var(--color-accent-700);border:1px solid var(--color-accent-300);padding:var(--space-1) var(--space-2);font-size:11.5px;font-weight:700;display:inline-block;margin-top:var(--space-1)">EJECUTANDO DEMO AUTOMÁTICA…</div>
+      </sc-if>
+      <sc-if value="{{isReadingActive}}" hint-placeholder-val="{{false}}">
+        <div style="background:var(--color-surface);border:1px solid var(--color-divider);padding:var(--space-2) var(--space-3);font-size:12.5px;margin:var(--space-2) 0 0;flex:none;display:flex;justify-content:space-between">
+          <span>Leyendo archivo <strong>{{readingFileName}}</strong> → bloque físico #{{readingBlockIndex}} (paso {{readingStepLabel}})</span>
+          <span style="color:var(--color-error);font-family:monospace;font-weight:bold">Tiempo total: {{readingTimeMs}} ms</span>
+        </div>
+      </sc-if>
+      <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));grid-template-rows:repeat(10,minmax(0,1fr));gap:4px;flex:1;min-height:0;margin-top:var(--space-3)">
+        <sc-for list="{{viewBlocks}}" as="block" hint-placeholder-count="100">
+          <div class="{{block.extraClass}}" title="{{block.tooltip}}" style="display:flex;align-items:center;justify-content:center;position:relative;background:{{block.bg}};color:{{block.textColor}};border:{{block.border}};font-family:var(--font-heading);font-weight:700;font-size:12px;overflow:hidden;border-radius:4px">
+            {{block.index}}
+            <sc-if value="{{block.isIndex}}" hint-placeholder-val="{{false}}">
+              <span style="position:absolute;bottom:2px;right:3px;font-size:7px;letter-spacing:0.04em;font-weight:800">IDX</span>
+            </sc-if>
+            <sc-if value="{{block.hasPointer}}" hint-placeholder-val="{{false}}">
+              <span style="position:absolute;bottom:2px;left:2px;font-size:7px;font-weight:800;white-space:nowrap">{{block.pointerText}}</span>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- TERCERA COLUMNA: Visualizador Físico Mecánico -->
+    <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;padding:var(--space-3) var(--space-4);overflow:hidden;align-items:center;justify-content:center;position:relative">
+      <div class="card-title" style="align-self:flex-start;margin-bottom:0;font-size:18px">Física del Disco</div>
+      <p class="text-muted" style="align-self:flex-start;font-size:12px;margin:var(--space-1) 0 var(--space-4);line-height:1.4">Vista del plato giratorio (Latencia Rotacional) y actuador lineal (Tiempo de Búsqueda).</p>
+      
+      <div style="position:relative;width:300px;height:300px;margin:auto">
+        <svg width="300" height="300" viewBox="-150 -150 300 300" style="position:absolute;top:0;left:0">
+           <!-- Base platter (Metallic Dark) -->
+           <circle r="140" fill="#6082B6" stroke="#465b73" stroke-width="4" />
+           
+           <!-- Rotational Group (Platter) -->
+           <g style="transform: rotate({{diskRotation}}deg); transition: transform {{seekTransitionMs}}ms ease-in-out">
+             <!-- Sectors & Tracks combined in one loop for 10 elements -->
+             <sc-for list="{{[0,1,2,3,4,5,6,7,8,9]}}" as="i" hint-placeholder-count="10">
+               <!-- Sector lines -->
+               <line x1="0" y1="0" x2="0" y2="-140" stroke="#373d45" stroke-width="2" style="transform: rotate({{i * 36}}deg)" />
+               <!-- Tracks -->
+               <circle r="{{ 130 - (i * 10) }}" fill="none" stroke="#373d45" stroke-width="1.5" />
+             </sc-for>
+
+             <!-- Active Sector Highlight (Bright Red Dot with Glow) -->
+             <sc-if value="{{isReadingActive}}" hint-placeholder-val="{{false}}">
+               <circle cx="{{activeBlockX}}" cy="{{activeBlockY}}" r="7" fill="#ff3333" stroke="#ffd700" stroke-width="2" />
+             </sc-if>
+           </g>
+
+           <!-- Spindle (Centro) -->
+           <circle r="15" fill="#4a5568" stroke="#2d3748" stroke-width="2" />
+           <circle r="6" fill="#1a202c" />
+
+           <!-- Arm Mechanism (Linear Actuator along Y axis) -->
+           <!-- Rail -->
+           <line x1="0" y1="-145" x2="0" y2="-30" stroke="#a0aec0" stroke-width="4" stroke-dasharray="6 4" stroke-linecap="round" />
+           
+           <!-- Head assembly -->
+           <g style="transform: translateY({{armTargetY}}px); transition: transform {{seekTransitionMs}}ms ease-in-out">
+             <!-- Shadow for depth -->
+             <rect x="-10" y="-10" width="20" height="20" fill="rgba(0,0,0,0.3)" rx="4" transform="translate(2, 2)" />
+             <!-- Main Block -->
+             <rect x="-10" y="-10" width="20" height="20" fill="#cbd5e0" stroke="#718096" stroke-width="1.5" rx="4" />
+             <rect x="-6" y="-6" width="12" height="12" fill="#e2e8f0" rx="2" />
+             <!-- Red Laser/Reader -->
+             <circle cx="0" cy="0" r="3" fill="#e53e3e" />
+           </g>
+        </svg>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const TOTAL_BLOCKS = 100;
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const FILE_COLORS = ['#ec3013', '#201e1d', '#ae1800', '#605d5d', '#7c1405', '#444141', '#333333', '#882211', '#111111', '#551100'];
+const METHOD_META = {
+  contigua: { label: 'Asignación contigua', caption: 'Cada archivo ocupa bloques consecutivos.' },
+  enlazada: { label: 'Asignación enlazada', caption: 'Bloques dispersos; cada uno apunta al siguiente.' },
+  indexada: { label: 'Asignación indexada', caption: 'Un bloque índice guarda los punteros a cada bloque de datos.' },
+  extensiones: { label: 'Asignación por extensiones', caption: 'Agrupa bloques en ráfagas contiguas (usado en ext4, NTFS).' },
+  multinivel: { label: 'Asignación multinivel', caption: 'Índices de múltiples niveles para archivos grandes.' },
+  fat: { label: 'Tabla de Asignación de Archivos (FAT)', caption: 'Los punteros se guardan en una tabla centralizada en RAM/Disco.' },
+  bitmap: { label: 'Mapa de bits (Bitmap)', caption: 'Usa un array de bits para rastrear espacio libre y asignar.' }
+};
+
+function freshSim() {
+  return { blocks: Array(TOTAL_BLOCKS).fill(null), blockRole: Array(TOTAL_BLOCKS).fill(null), files: [], counter: 0 };
+}
+
+const AUTO_DEMO_STEPS = [
+  { type: 'create', size: 12 }, { type: 'create', size: 15 }, { type: 'create', size: 10 },
+  { type: 'create', size: 8 }, { type: 'create', size: 20 }, { type: 'create', size: 14 },
+  { type: 'delete', fileIndex: 1 }, { type: 'delete', fileIndex: 3 },
+  { type: 'create', size: 18 }
+];
+
+class Component extends DCLogic {
+  state = {
+    method: 'contigua',
+    sims: { contigua: freshSim(), enlazada: freshSim(), indexada: freshSim(), extensiones: freshSim(), multinivel: freshSim(), fat: freshSim(), bitmap: freshSim() },
+    sizeInput: 10,
+    startInput: '',
+    error: null,
+    reading: null,
+    autoRunning: false,
+    useRamCache: false
+  };
+
+  componentWillUnmount() {
+    clearInterval(this.readTimer);
+    clearTimeout(this.readEndTimer);
+    clearTimeout(this.errorTimer);
+    clearTimeout(this.autoTimer);
+  }
+
+  selectMethod(method) {
+    if (this.state.reading) { clearInterval(this.readTimer); clearTimeout(this.readEndTimer); }
+    this.setState({ method, reading: null, error: null });
+  }
+
+  applyStep(method, sim, step) {
+    if (step.type === 'create') {
+      const result = this.allocate(method, sim, step.size);
+      if (!result.ok) return { sim, error: result.reason };
+      const counter = sim.counter;
+      const file = {
+        id: `f${Date.now()}${counter}${Math.random().toString(36).slice(2, 5)}`,
+        name: LETTERS[counter % LETTERS.length],
+        color: FILE_COLORS[counter % FILE_COLORS.length],
+        size: step.size, blocks: result.blocks, indexBlock: result.indexBlock ?? null
+      };
+      const newBlocks = sim.blocks.slice();
+      const newRole = sim.blockRole.slice();
+      file.blocks.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'data'; });
+      if (file.indexBlock != null) { newBlocks[file.indexBlock] = file.id; newRole[file.indexBlock] = 'index'; }
+      if (file.secondaryIndexes) {
+        file.secondaryIndexes.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'index2'; });
+      }
+      return { sim: { blocks: newBlocks, blockRole: newRole, files: [...sim.files, file], counter: counter + 1 }, error: null };
+    }
+    if (step.type === 'delete') {
+      const file = sim.files[step.fileIndex];
+      if (!file) return { sim, error: null };
+      const newBlocks = sim.blocks.slice();
+      const newRole = sim.blockRole.slice();
+      file.blocks.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+      if (file.indexBlock != null) { newBlocks[file.indexBlock] = null; newRole[file.indexBlock] = null; }
+      if (file.secondaryIndexes) {
+        file.secondaryIndexes.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+      }
+      return { sim: { ...sim, blocks: newBlocks, blockRole: newRole, files: sim.files.filter((f, i) => i !== step.fileIndex) }, error: null };
+    }
+    return { sim, error: null };
+  }
+
+  runAutoDemo() {
+    if (this.state.autoRunning) return;
+    clearInterval(this.readTimer); clearTimeout(this.readEndTimer);
+    const activeMethod = this.state.method;
+    const others = ['contigua', 'enlazada', 'indexada', 'extensiones', 'multinivel', 'fat', 'bitmap'].filter(m => m !== activeMethod);
+    this.setState(s => {
+      const newSims = { ...s.sims };
+      others.forEach(m => {
+        let sim = freshSim();
+        AUTO_DEMO_STEPS.forEach(step => { sim = this.applyStep(m, sim, step).sim; });
+        newSims[m] = sim;
+      });
+      newSims[activeMethod] = freshSim();
+      return { sims: newSims, autoRunning: true, error: null, reading: null };
+    });
+    this.autoStepIndex = 0;
+    this.autoTimer = setTimeout(() => this.runAutoStep(activeMethod), 700);
+  }
+
+  runAutoStep(method) {
+    if (this.autoStepIndex >= AUTO_DEMO_STEPS.length) { this.setState({ autoRunning: false }); return; }
+    const step = AUTO_DEMO_STEPS[this.autoStepIndex];
+    this.setState(s => {
+      const { sim: newSim, error } = this.applyStep(method, s.sims[method], step);
+      return { sims: { ...s.sims, [method]: newSim }, error: error ? { text: error } : null };
+    });
+    this.autoStepIndex++;
+    this.autoTimer = setTimeout(() => this.runAutoStep(method), 750);
+  }
+
+  stopAutoDemo() {
+    clearTimeout(this.autoTimer);
+    this.setState({ autoRunning: false });
+  }
+
+  showError(text) {
+    clearTimeout(this.errorTimer);
+    this.setState({ error: { text } });
+    this.errorTimer = setTimeout(() => this.setState({ error: null }), 4000);
+  }
+
+  allocateContigua(sim, size, preferredStart) {
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart > sim.blocks.length - size) return { ok: false, reason: `El archivo de tamaño ${size} no cabe empezando en el bloque ${preferredStart}.` };
+      for (let j = 0; j < size; j++) {
+        if (sim.blocks[preferredStart + j] !== null) return { ok: false, reason: `El bloque ${preferredStart + j} ya está ocupado.` };
+      }
+      return { ok: true, blocks: Array.from({ length: size }, (_, j) => preferredStart + j) };
+    }
+    for (let start = 0; start <= sim.blocks.length - size; start++) {
+      let ok = true;
+      for (let j = 0; j < size; j++) if (sim.blocks[start + j] !== null) { ok = false; break; }
+      if (ok) return { ok: true, blocks: Array.from({ length: size }, (_, j) => start + j) };
+    }
+    const free = sim.blocks.filter(b => b === null).length;
+    if (free >= size) return { ok: false, reason: `Fragmentación: hay ${free} bloques libres, pero ninguna zona contigua de ${size}.` };
+    return { ok: false, reason: `Espacio insuficiente: solo quedan ${free} bloques libres.` };
+  }
+
+  allocateEnlazada(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de inicio inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque de inicio ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < size; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < size) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: solo quedan ${free} bloques libres.` };
+    }
+    return { ok: true, blocks: freeIdx };
+  }
+
+  allocateIndexada(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de índice inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque índice ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < size + 1; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < size + 1) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: se necesita 1 bloque índice + ${size} de datos.` };
+    }
+    return { ok: true, indexBlock: freeIdx[0], blocks: freeIdx.slice(1) };
+  }
+
+  allocateExtensiones(sim, size, preferredStart) {
+    const freeIdx = [];
+    const extents = [];
+    let indexBlock = null;
+
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de índice inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque índice ${preferredStart} está ocupado.` };
+      indexBlock = preferredStart;
+    }
+
+    if (indexBlock === null) {
+      for (let i = 0; i < sim.blocks.length; i++) {
+        if (sim.blocks[i] === null) { indexBlock = i; break; }
+      }
+    }
+    if (indexBlock === null) return { ok: false, reason: `No hay espacio ni para el bloque índice.` };
+
+    let remaining = size;
+    let i = 0;
+    while (i < sim.blocks.length && remaining > 0) {
+      if (i === indexBlock || sim.blocks[i] !== null) { i++; continue; }
+      let start = i;
+      let length = 0;
+      while (i < sim.blocks.length && remaining > 0 && sim.blocks[i] === null && i !== indexBlock) {
+        length++; remaining--; freeIdx.push(i); i++;
+      }
+      extents.push({ start, length });
+    }
+
+    if (remaining > 0) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: se necesita 1 bloque índice + ${size} de datos.` };
+    }
+    return { ok: true, indexBlock, blocks: freeIdx, extents };
+  }
+
+  allocateMultinivel(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de inicio inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    const maxPointersPerBlock = 5;
+    const numSecondaryIndexes = Math.ceil(size / maxPointersPerBlock);
+    const requiresMultiLevel = size > maxPointersPerBlock;
+    const numIndexes = requiresMultiLevel ? 1 + numSecondaryIndexes : 1; 
+    const totalNeeded = size + numIndexes;
+
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < totalNeeded; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < totalNeeded) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: requiere ${numIndexes} bloques índice y ${size} de datos, pero hay ${free} libres.` };
+    }
+    const indexBlock = freeIdx[0];
+    let secondaryIndexes = [];
+    let blocks = [];
+    if (requiresMultiLevel) {
+       secondaryIndexes = freeIdx.slice(1, 1 + numSecondaryIndexes);
+       blocks = freeIdx.slice(1 + numSecondaryIndexes);
+    } else {
+       blocks = freeIdx.slice(1);
+    }
+    return { ok: true, indexBlock, secondaryIndexes, blocks };
+  }
+
+  allocate(method, sim, size, preferredStart) {
+    if (method === 'contigua' || method === 'bitmap') return this.allocateContigua(sim, size, preferredStart);
+    if (method === 'enlazada' || method === 'fat') return this.allocateEnlazada(sim, size, preferredStart);
+    if (method === 'extensiones') return this.allocateExtensiones(sim, size, preferredStart);
+    if (method === 'multinivel') return this.allocateMultinivel(sim, size, preferredStart);
+    return this.allocateIndexada(sim, size, preferredStart);
+  }
+
+  createFile() {
+    if (this.state.autoRunning) return;
+    const method = this.state.method;
+    const size = Math.max(1, Number(this.state.sizeInput) || 1);
+    let preferredStart = null;
+    if (this.state.startInput !== '') {
+      preferredStart = Number(this.state.startInput);
+    }
+    
+    const sim = this.state.sims[method];
+    const result = this.allocate(method, sim, size, preferredStart);
+
+    if (!result.ok) { this.showError(result.reason); return; }
+
+    const counter = sim.counter;
+    const file = {
+      id: `f${Date.now()}${counter}`,
+      name: LETTERS[counter % LETTERS.length],
+      color: FILE_COLORS[counter % FILE_COLORS.length],
+      size,
+      blocks: result.blocks,
+      indexBlock: result.indexBlock ?? null,
+      secondaryIndexes: result.secondaryIndexes ?? null,
+      extents: result.extents ?? null
+    };
+    const newBlocks = sim.blocks.slice();
+    const newRole = sim.blockRole.slice();
+    file.blocks.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'data'; });
+    if (file.indexBlock != null) { newBlocks[file.indexBlock] = file.id; newRole[file.indexBlock] = 'index'; }
+    if (file.secondaryIndexes) {
+      file.secondaryIndexes.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'index2'; });
+    }
+    const newSim = { blocks: newBlocks, blockRole: newRole, files: [...sim.files, file], counter: counter + 1 };
+    this.setState(s => ({ sims: { ...s.sims, [method]: newSim }, error: null, startInput: '' }));
+  }
+
+  defragment() {
+    if (this.state.autoRunning || (this.state.method !== 'contigua' && this.state.method !== 'bitmap')) return;
+    const sim = this.state.sims[this.state.method];
+    const newBlocks = Array(TOTAL_BLOCKS).fill(null);
+    const newRole = Array(TOTAL_BLOCKS).fill(null);
+    const newFiles = [];
+    
+    let currentFreeIdx = 0;
+    sim.files.forEach(f => {
+      const newFileBlocks = [];
+      for (let j = 0; j < f.size; j++) {
+        newBlocks[currentFreeIdx + j] = f.id;
+        newRole[currentFreeIdx + j] = 'data';
+        newFileBlocks.push(currentFreeIdx + j);
+      }
+      newFiles.push({ ...f, blocks: newFileBlocks });
+      currentFreeIdx += f.size;
+    });
+    
+    this.setState(s => ({ sims: { ...s.sims, [this.state.method]: { ...sim, blocks: newBlocks, blockRole: newRole, files: newFiles } }, reading: null }));
+  }
+
+  deleteFile(method, fileId) {
+    if (this.state.autoRunning) return;
+    const sim = this.state.sims[method];
+    const file = sim.files.find(f => f.id === fileId);
+    if (!file) return;
+    const newBlocks = sim.blocks.slice();
+    const newRole = sim.blockRole.slice();
+    file.blocks.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+    if (file.indexBlock != null) { newBlocks[file.indexBlock] = null; newRole[file.indexBlock] = null; }
+    if (file.secondaryIndexes) {
+      file.secondaryIndexes.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+    }
+    const newSim = { ...sim, blocks: newBlocks, blockRole: newRole, files: sim.files.filter(f => f.id !== fileId) };
+    let reading = this.state.reading;
+    if (reading && reading.method === method && reading.fileId === fileId) {
+      clearTimeout(this.readTimer); clearTimeout(this.readEndTimer); reading = null;
+    }
+    this.setState(s => ({ sims: { ...s.sims, [method]: newSim }, reading }));
+  }
+
+  resetMethod(method) {
+    if (this.state.autoRunning) return;
+    if (this.state.reading && this.state.reading.method === method) {
+      clearTimeout(this.readTimer); clearTimeout(this.readEndTimer);
+    }
+    this.setState(s => ({
+      sims: { ...s.sims, [method]: freshSim() },
+      reading: s.reading && s.reading.method === method ? null : s.reading
+    }));
+  }
+
+  computeReadPath(method, file) {
+    if (method === 'extensiones') {
+      const path = [file.indexBlock];
+      for (let i = 0; i < file.blocks.length; i++) path.push(file.blocks[i]);
+      return path;
+    }
+    if (method === 'indexada') {
+      const path = [];
+      if (this.state.useRamCache) {
+        // En Modo Real (RAM Cache), va al índice una vez y luego directo a los datos
+        path.push(file.indexBlock);
+        for (let i = 0; i < file.blocks.length; i++) {
+          path.push(file.blocks[i]);
+        }
+      } else {
+        // Modo Didáctico (Yoyo)
+        for (let i = 0; i < file.blocks.length; i++) {
+          path.push(file.indexBlock);
+          path.push(file.blocks[i]);
+        }
+      }
+      return path;
+    }
+    if (method === 'multinivel') {
+      const path = [file.indexBlock];
+      if (file.secondaryIndexes && file.secondaryIndexes.length > 0) {
+        const maxP = 5;
+        for (let i = 0; i < file.blocks.length; i++) {
+           if (i % maxP === 0) {
+              const secIdx = Math.floor(i / maxP);
+              path.push(file.secondaryIndexes[secIdx]);
+           }
+           path.push(file.blocks[i]);
+        }
+      } else {
+        for (let i = 0; i < file.blocks.length; i++) path.push(file.blocks[i]);
+      }
+      return path;
+    }
+    if (method === 'fat') {
+       return file.blocks.slice();
+    }
+    return file.blocks.slice();
+  }
+
+  startReading(file, method) {
+    if (this.state.autoRunning) return;
+    clearTimeout(this.readTimer);
+    clearTimeout(this.readEndTimer);
+    const path = this.computeReadPath(method, file);
+    
+    // El brazo se mueve al primer bloque
+    this.setState({ reading: { method, fileId: file.id, step: 0, total: path.length, path, timeMs: 0, seekTarget: path[0], currentDelay: 300 } }, () => {
+      const nextStep = () => {
+        const s = this.state;
+        if (!s.reading) return;
+        const step = s.reading.step;
+        
+        if (step + 1 >= s.reading.total) {
+          this.readEndTimer = setTimeout(() => this.setState({ reading: null }), 1000);
+          return;
+        }
+
+        const currentBlock = s.reading.path[step];
+        const nextBlock = s.reading.path[step + 1];
+        
+        const distance = Math.abs(nextBlock - currentBlock);
+        
+        let delay = 0;
+        if (method === 'contigua' || method === 'bitmap') {
+          delay = 50 + (distance * 20); // Lectura secuencial ultra rápida
+        } else if (method === 'enlazada') {
+          delay = 300 + (distance * 40); // Penalización alta: debe leer el puntero, pasarlo a CPU, y recién buscar el siguiente
+        } else if (method === 'indexada') {
+          if (this.state.useRamCache) {
+             delay = 80 + (distance * 40); // Punteros en RAM: no hay tiempo de lectura de puntero en disco, solo movimiento físico
+          } else {
+             delay = 150 + (distance * 40); // Modo Didáctico
+          }
+        } else if (method === 'extensiones') {
+          if (distance === 1 && nextBlock > currentBlock) {
+             delay = 50 + (distance * 20); // Lectura secuencial rápida dentro de la misma extensión
+          } else {
+             delay = 100 + (distance * 40); // Salto físico hacia otra extensión
+          }
+        } else if (method === 'multinivel') {
+          delay = 150 + (distance * 40);
+        } else if (method === 'fat') {
+          delay = 100 + (distance * 30);
+        }
+
+        // 1. Iniciar movimiento físico de las piezas mecánicas
+        this.setState(prevState => ({
+          reading: prevState.reading ? { ...prevState.reading, seekTarget: nextBlock, currentDelay: delay } : null
+        }), () => {
+          // 2. Esperar a que las piezas terminen de moverse para registrar la lectura lógica
+          this.readTimer = setTimeout(() => {
+            this.setState(prevState => ({
+              reading: prevState.reading ? { ...prevState.reading, step: prevState.reading.step + 1, timeMs: prevState.reading.timeMs + delay } : null
+            }), nextStep);
+          }, delay);
+        });
+      };
+      
+      this.readTimer = setTimeout(nextStep, 300);
+    });
+  }
+
+  renderVals() {
+    const { method, sims, sizeInput, startInput, error, reading } = this.state;
+    const sim = sims[method];
+    const meta = METHOD_META[method];
+    const fileById = {};
+    sim.files.forEach(f => { fileById[f.id] = f; });
+
+    const isReadingHere = !!(reading && reading.method === method);
+    const currentBlock = isReadingHere ? reading.path[reading.step] : null;
+    const visitedSet = isReadingHere ? new Set(reading.path.slice(0, reading.step)) : new Set();
+
+    const viewBlocks = [];
+    for (let i = 0; i < TOTAL_BLOCKS; i++) {
+      const fid = sim.blocks[i];
+      const file = fid ? fileById[fid] : null;
+      const isCurrent = isReadingHere && currentBlock === i;
+      const isVisited = isReadingHere && !isCurrent && visitedSet.has(i);
+      
+      let tooltip = "Libre";
+      let hasPointer = false;
+      let pointerText = "";
+      
+      if (file) {
+        if (sim.blockRole[i] === 'index') {
+          tooltip = `Archivo ${file.name} - Bloque Índice`;
+          if (method === 'extensiones') {
+             const exts = (file.extents || []).map(e => `[${e.start} a ${e.start + e.length - 1}]`).join(', ');
+             tooltip += `\nExtensiones: ${exts}`;
+          } else if (method === 'multinivel') {
+             tooltip = `Archivo ${file.name} - Bloque Índice Principal`;
+          }
+        } else if (sim.blockRole[i] === 'index2') {
+          tooltip = `Archivo ${file.name} - Bloque Índice Secundario`;
+        } else {
+          const idx = file.blocks.indexOf(i);
+          tooltip = `Archivo ${file.name} - Bloque Datos ${idx + 1}/${file.size}`;
+          if (method === 'enlazada' && idx < file.size - 1) {
+             hasPointer = true;
+             pointerText = `→${file.blocks[idx + 1]}`;
+          } else if (method === 'enlazada' && idx === file.size - 1) {
+             hasPointer = true;
+             pointerText = `→ -1`;
+          } else if (method === 'indexada') {
+             hasPointer = true;
+             pointerText = `↑${file.indexBlock}`;
+          } else if (method === 'extensiones') {
+             hasPointer = true;
+             pointerText = `EXT`;
+          } else if (method === 'multinivel') {
+             hasPointer = true; 
+             if (file.secondaryIndexes && file.secondaryIndexes.length > 0) {
+                pointerText = `↑${file.secondaryIndexes[Math.floor(idx / 5)]}`;
+             } else {
+                pointerText = `↑${file.indexBlock}`;
+             }
+          } else if (method === 'fat') {
+             hasPointer = true; pointerText = `FAT`;
+          } else if (method === 'bitmap') {
+             hasPointer = true; pointerText = `BIT`;
+          }
+        }
+      }
+
+      viewBlocks.push({
+        index: i,
+        bg: file ? file.color : 'var(--color-neutral-200)',
+        textColor: file ? 'var(--color-bg)' : 'var(--color-neutral-500)',
+        border: file ? ((sim.blockRole[i] === 'index' || sim.blockRole[i] === 'index2') ? '2px dashed var(--color-bg)' : '1px solid transparent') : '1px solid var(--color-neutral-400)',
+        isIndex: sim.blockRole[i] === 'index' || sim.blockRole[i] === 'index2',
+        extraClass: isCurrent ? 'sim-cursor' : (isVisited ? 'sim-visited' : ''),
+        tooltip,
+        hasPointer,
+        pointerText
+      });
+    }
+
+    const fatTable = [];
+    const bitmapTable = [];
+    if (method === 'fat' || method === 'bitmap') {
+      for (let i = 0; i < TOTAL_BLOCKS; i++) {
+        const fid = sim.blocks[i];
+        const file = fid ? fileById[fid] : null;
+        if (method === 'fat') {
+           let val = "";
+           let bg = "var(--color-neutral-200)";
+           let color = "var(--color-neutral-500)";
+           if (file) {
+              bg = file.color;
+              color = "var(--color-bg)";
+              const idx = file.blocks.indexOf(i);
+              if (idx < file.size - 1) {
+                 val = String(file.blocks[idx + 1]);
+              } else {
+                 val = "EOF";
+              }
+           }
+           fatTable.push({ index: i, val, bg, color });
+        }
+        if (method === 'bitmap') {
+           const isFree = fid === null;
+           bitmapTable.push({
+             index: i,
+             val: isFree ? "0" : "1",
+             bg: isFree ? "var(--color-neutral-200)" : "var(--color-text)",
+             color: isFree ? "var(--color-neutral-400)" : "var(--color-bg)"
+           });
+        }
+      }
+    }
+
+    const viewFiles = sim.files.map(f => {
+      const isReadingThis = isReadingHere && reading.fileId === f.id;
+      let dirTable = "";
+      if (method === 'contigua' || method === 'bitmap') dirTable = `Inicio: ${f.blocks[0]} | Longitud: ${f.size}`;
+      else if (method === 'enlazada') dirTable = `Inicio: ${f.blocks[0]} | Fin: ${f.blocks[f.blocks.length - 1]}`;
+      else if (method === 'fat') dirTable = `Inicio: ${f.blocks[0]} (usando FAT)`;
+      else if (method === 'indexada') dirTable = `Bloque Índice: ${f.indexBlock}`;
+      else if (method === 'extensiones') dirTable = `Índice: ${f.indexBlock} | Exts: ${f.extents ? f.extents.length : 0}`;
+      else if (method === 'multinivel') dirTable = `Índice Principal: ${f.indexBlock} | Secundarios: ${f.secondaryIndexes ? f.secondaryIndexes.length : 0}`;
+      
+      return {
+        id: f.id, name: f.name, color: f.color, size: f.size, dirTable,
+        isReading: isReadingThis,
+        readingLabel: isReadingThis ? `paso ${reading.step + 1}/${reading.total}` : '',
+        onRead: () => this.startReading(f, method),
+        onDelete: () => this.deleteFile(method, f.id)
+      };
+    });
+
+    const freeCount = sim.blocks.filter(b => b === null).length;
+    const usedCount = TOTAL_BLOCKS - freeCount;
+
+      const seekTarget = isReadingHere && reading.seekTarget !== undefined ? reading.seekTarget : currentBlock;
+      let diskRotation = 0;
+      let armTargetY = -140;
+      let activeBlockX = 0;
+      let activeBlockY = 0;
+
+      if (seekTarget !== null && seekTarget !== undefined) {
+         const track = Math.floor(seekTarget / 10);
+         const sector = seekTarget % 10;
+         const radius = 130 - (track * 10);
+         const angleDeg = sector * 36;
+         
+         diskRotation = -angleDeg;
+         armTargetY = -radius;
+
+         const angleRad = angleDeg * Math.PI / 180;
+         activeBlockX = radius * Math.sin(angleRad);
+         activeBlockY = -radius * Math.cos(angleRad);
+      }
+      
+      const seekTransitionMs = isReadingHere && reading.currentDelay ? reading.currentDelay : 0;
+
+      return {
+      isContigua: method === 'contigua', isEnlazada: method === 'enlazada', isIndexada: method === 'indexada', isExtensiones: method === 'extensiones', isMultinivel: method === 'multinivel', isFat: method === 'fat', isBitmap: method === 'bitmap',
+      isDefragmentable: method === 'contigua' || method === 'bitmap',
+      selectContigua: () => this.selectMethod('contigua'),
+      selectEnlazada: () => this.selectMethod('enlazada'),
+      selectIndexada: () => this.selectMethod('indexada'),
+      selectExtensiones: () => this.selectMethod('extensiones'),
+      selectMultinivel: () => this.selectMethod('multinivel'),
+      selectFat: () => this.selectMethod('fat'),
+      selectBitmap: () => this.selectMethod('bitmap'),
+      currentMethod: method,
+      onMethodChange: e => this.selectMethod(e.target.value),
+      useRamCache: this.state.useRamCache,
+      toggleRamCache: e => this.setState({ useRamCache: e.target.checked }),
+      methodLabel: meta.label, methodCaption: meta.caption,
+      sizeInput, startInput,
+      onSizeChange: e => this.setState({ sizeInput: e.target.value }),
+      onStartChange: e => this.setState({ startInput: e.target.value }),
+      createFile: () => this.createFile(),
+      defragment: () => this.defragment(),
+      hasError: !!error, errorText: error ? error.text : '',
+      viewFiles, fileCount: viewFiles.length, hasFiles: viewFiles.length > 0, hasNoFiles: viewFiles.length === 0,
+      viewBlocks,
+      freeCount, usedCount, totalBlocks: TOTAL_BLOCKS,
+      freePercent: Math.round((freeCount / TOTAL_BLOCKS) * 100),
+      usedPercent: Math.round((usedCount / TOTAL_BLOCKS) * 100),
+      resetMethod: () => this.resetMethod(method),
+      autoRunning: this.state.autoRunning,
+      notAutoRunning: !this.state.autoRunning,
+      runAutoDemo: () => this.runAutoDemo(),
+      stopAutoDemo: () => this.stopAutoDemo(),
+      isReadingActive: isReadingHere,
+      readingFileName: isReadingHere ? (fileById[reading.fileId] ? fileById[reading.fileId].name : '') : '',
+      readingBlockIndex: isReadingHere ? currentBlock : 0,
+      readingStepLabel: isReadingHere ? `${reading.step + 1}/${reading.total}` : '',
+      readingTimeMs: isReadingHere ? (reading.timeMs || 0) : 0,
+      diskRotation,
+      seekTransitionMs,
+      armTargetY,
+      activeBlockX,
+      activeBlockY,
+      fatTable,
+      bitmapTable
+    };
+  }
+}
+
+</script>
+</body>
+</html>
