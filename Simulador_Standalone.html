@@ -1,0 +1,2933 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.setRootName(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    if (!window.__resources) {
+      fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+        const raw = t ? parseDcText(t) : null;
+        if (raw?.template) runtime.updateHtml(rootName, raw.template);
+      }).catch(() => {
+      });
+    }
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      const defaults = React.useMemo(() => {
+        const d = {};
+        for (const k in entry.propsMeta || {}) {
+          const v = entry.propsMeta?.[k]?.default;
+          if (v !== void 0) d[k] = v;
+        }
+        return d;
+      }, [entry.propsMeta]);
+      return h(Root, { ...defaults, ...entry.propOverrides || {} });
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var INLINE_TEXT_TAGS = new Set(
+    "a abbr b bdi bdo br cite code del dfn em i ins kbd mark q s samp small span strike strong sub sup u var wbr".split(
+      " "
+    )
+  );
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu",
+    onmousemove: "onMouseMove",
+    onmouseover: "onMouseOver",
+    onmouseout: "onMouseOut",
+    onpointerdown: "onPointerDown",
+    onpointerup: "onPointerUp",
+    onpointermove: "onPointerMove",
+    onpointerenter: "onPointerEnter",
+    onpointerleave: "onPointerLeave",
+    onpointercancel: "onPointerCancel",
+    onpointerover: "onPointerOver",
+    onpointerout: "onPointerOut",
+    ongotpointercapture: "onGotPointerCapture",
+    onlostpointercapture: "onLostPointerCapture",
+    ontouchstart: "onTouchStart",
+    ontouchend: "onTouchEnd",
+    ontouchmove: "onTouchMove",
+    ontouchcancel: "onTouchCancel",
+    ondragstart: "onDragStart",
+    ondragend: "onDragEnd",
+    ondragenter: "onDragEnter",
+    ondragleave: "onDragLeave",
+    ondragover: "onDragOver",
+    onanimationstart: "onAnimationStart",
+    onanimationend: "onAnimationEnd",
+    onanimationiteration: "onAnimationIteration",
+    ontransitionend: "onTransitionEnd"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCamelAttrs(html) {
+    return html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+  }
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = encodeCamelAttrs(html);
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, kind, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (kind !== "dom") {
+        if (key.includes("-") && !(kind === "x-import" && (key.startsWith("aria-") || key.startsWith("data-"))))
+          key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, "dc-import", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) {
+        const v = g(vals);
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const fromRaw = el.getAttribute("from") || (el.getAttribute("component-from-global-scope") ? "" : el.getAttribute("src") || el.getAttribute("import") || "");
+    const urls = fromRaw.trim() ? fromRaw.trim().split(/\s+/) : [];
+    const url = urls.length ? urls[urls.length - 1] : "";
+    const kindOf = (u) => /\.(jsx|tsx)(\?|#|$)/i.test(u) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, "x-import", host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const kids = hasContent ? walkChildren(el, host) : [];
+    const urlBindable = fromRaw.includes("{{");
+    if (urls.length && !urlBindable) {
+      let prev;
+      for (const u of urls) prev = host.loadExternal(kindOf(u), u, prev);
+    }
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "from") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function contentKey(el) {
+    const clone = el.cloneNode(true);
+    for (const d of clone.querySelectorAll("*")) {
+      while (d.attributes.length) d.removeAttribute(d.attributes[0].name);
+    }
+    const s = clone.innerHTML;
+    let h2 = 5381;
+    for (let i = 0; i < s.length; i++) h2 = (h2 << 5) + h2 + s.charCodeAt(i) | 0;
+    return s.length + "." + (h2 >>> 0).toString(36);
+  }
+  var NEVER_CONTENT_KEYED = new Set(
+    "script style textarea option title select canvas iframe video audio".split(
+      " "
+    )
+  );
+  var NOT_INLINE_SELECTOR = ":not(" + [...INLINE_TEXT_TAGS].join(",") + ")";
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const inlineOnly = el.childNodes.length > 0 && !NEVER_CONTENT_KEYED.has(realTag) && el.querySelector(NOT_INLINE_SELECTOR) === null;
+    const keySuffix = inlineOnly ? "|" + contentKey(el) : "";
+    const { propGetters, pseudoClasses } = collectProps(el, "dom", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key: key + keySuffix,
+        "data-dc-tpl": tplId
+      };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...kids.map((b, j) => b(vals, ctx, j)));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error", "data-omelette-chrome": "" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h(
+            "div",
+            { className: "sc-logic-error", "data-omelette-chrome": "" },
+            renderErr
+          ),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/bundled.ts
+  function bundledBlob(url) {
+    const blobs = window.__resourceBlobs;
+    const b = blobs ? blobs[url.split("#")[0]] : void 0;
+    return b instanceof Blob ? b : null;
+  }
+
+  // src/cdn.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+  var BABEL_SRI = "sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y";
+  function cdnScriptFor(url, sri) {
+    const res = window.__resources;
+    const v = res ? res[url] : void 0;
+    return typeof v === "string" && v ? { src: v } : { src: url, integrity: sri };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      const babel = cdnScriptFor(BABEL_URL, BABEL_SRI);
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = babel.src;
+        if (babel.integrity) {
+          s.integrity = babel.integrity;
+          s.crossOrigin = "anonymous";
+        }
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    const pending = /* @__PURE__ */ new Map();
+    function load(kind, url, after) {
+      const existing = pending.get(url);
+      if (existing) return existing;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = Promise.all([
+        kind === "jsx" ? ensureBabel() : Promise.resolve(),
+        after ?? Promise.resolve()
+      ]);
+      const p = ready.then(() => {
+        const pre = bundledBlob(url);
+        if (pre) return pre.text();
+        return fetch(url).then((r) => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        });
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+      pending.set(url, p);
+      return p;
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  var DESIGN_DOC_MODE_RE = /<meta\b[^>]*\bname\s*=\s*["']design_doc_mode["'][^>]*\b(?:content|value)\s*=\s*["'](\w+)["']/i;
+  var CANVAS_BG_LIGHT = "#f0eee6";
+  var CANVAS_BG_DARK = "#2e2c26";
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    let designDocMode = null;
+    let canvasStyleEl = null;
+    let appTheme = "light";
+    try {
+      const ds = doc.documentElement.dataset.theme;
+      appTheme = ds === "dark" || ds === "light" ? ds : new URLSearchParams(doc.defaultView?.location.search ?? "").get(
+        "theme"
+      ) === "dark" ? "dark" : "light";
+    } catch {
+    }
+    function applyCanvasBg() {
+      if (!canvasStyleEl) return;
+      const bg = appTheme === "dark" ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+      canvasStyleEl.textContent = `html,body{background:${bg}}#dc-root>.sc-host{position:relative}`;
+    }
+    function postDesignMode(mode) {
+      if (window.parent === window) return;
+      try {
+        window.parent.postMessage({ type: "__dc_design_mode", mode }, "*");
+      } catch {
+      }
+    }
+    function setDesignDocMode(mode) {
+      if (mode === designDocMode) return;
+      designDocMode = mode;
+      postDesignMode(mode);
+      if (mode === "canvas") {
+        doc.documentElement.setAttribute("data-dc-canvas", "");
+        canvasStyleEl = doc.createElement("style");
+        canvasStyleEl.setAttribute("data-dc-canvas", "");
+        applyCanvasBg();
+        doc.head.appendChild(canvasStyleEl);
+      } else {
+        doc.documentElement.removeAttribute("data-dc-canvas");
+        canvasStyleEl?.remove();
+        canvasStyleEl = null;
+      }
+    }
+    window.addEventListener("message", (e) => {
+      const type = e.data && e.data.type;
+      if (type === "__dc_theme") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          appTheme = t;
+          applyCanvasBg();
+        }
+        return;
+      }
+      if (!designDocMode || type !== "__dc_probe") return;
+      postDesignMode(designDocMode);
+    });
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            if (tag === "LINK") {
+              const rel = (child.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+              const href = (child.getAttribute("href") || "").trim();
+              const res = window.__resources;
+              const pre = res && rel.includes("stylesheet") && !rel.includes("alternate") ? res[href] : void 0;
+              const blob = typeof pre === "string" && pre ? bundledBlob(pre) : null;
+              if (blob) {
+                const el = doc.createElement("style");
+                if (child.hasAttribute("disabled")) {
+                  el.setAttribute("media", "not all");
+                } else if (child.getAttribute("media")) {
+                  el.setAttribute("media", child.getAttribute("media"));
+                }
+                if (child.getAttribute("title"))
+                  el.setAttribute("title", child.getAttribute("title"));
+                void blob.text().then((css) => {
+                  el.textContent = css;
+                });
+                doc.head.appendChild(el);
+                continue;
+              }
+            }
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile, setDesignDocMode };
+  }
+
+  // src/pseudo.ts
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const sel = pseudo === "before" || pseudo === "after" ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(sel + "{" + css + "}", el.sheet.cssRules.length);
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url, after) => external.load(kind, url, after),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      const res = window.__resources;
+      const pre = res ? res[url] : void 0;
+      const target = typeof pre === "string" && pre ? pre : url;
+      const blob = bundledBlob(target);
+      (blob ? blob.text() : fetch(target).then((res2) => {
+        if (!res2.ok) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '" failed:',
+            url,
+            "returned",
+            res2.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res2.text();
+      })).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '":',
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          '[dc-runtime] sibling fetch for "' + name + '" threw:',
+          url,
+          e
+        )
+      );
+    }
+    let rootName = null;
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      if (name === rootName) {
+        const mode = DESIGN_DOC_MODE_RE.exec(html)?.[1] ?? null;
+        if (mode || !r.htmlStreaming) helmet.setDesignDocMode(mode);
+      }
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      setRootName: (name) => {
+        rootName = name;
+      },
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/stream-state.ts
+  function createStreamTracker(staleMs = 6e4, now = Date.now) {
+    const since = /* @__PURE__ */ new Map();
+    const liveOne = (n) => {
+      const t = since.get(n);
+      if (t === void 0) return false;
+      if (now() - t > staleMs) {
+        since.delete(n);
+        return false;
+      }
+      return true;
+    };
+    return {
+      push(name, streaming, viewportKey) {
+        if (viewportKey === "dc-model") return;
+        if (streaming) since.set(name, now());
+        else since.delete(name);
+      },
+      live(name) {
+        if (name !== void 0) return liveOne(name);
+        for (const n of [...since.keys()]) if (liveOne(n)) return true;
+        return false;
+      }
+    };
+  }
+
+  // src/index.ts
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    const react = cdnScriptFor(REACT_URL, REACT_SRI);
+    const reactDom = cdnScriptFor(REACT_DOM_URL, REACT_DOM_SRI);
+    return Promise.all([
+      loadScript(react.src, react.integrity),
+      loadScript(reactDom.src, reactDom.integrity)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const streams = createStreamTracker();
+    const api = {
+      __dcUpdate: (name, kind, content, streaming, viewportKey) => {
+        streams.push(name, streaming, viewportKey);
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcStreaming: (name) => streams.live(name),
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`sc-camel-*` attrs,
+       *  `<sc-raw-*>`/`<sc-helmet>` tags); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    window.__dcContentKeyed = true;
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <style>
+/* Modernist — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
+
+:root {
+  --color-bg: #f3f2f2;
+  --color-surface: #eae9e9;
+  --color-text: #201e1d;
+  --color-accent: #ec3013;
+  --color-accent-2: #e15b47;
+  --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
+
+  /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
+     same step of any role matches the others in visual value. */
+  --color-neutral-100: #f8f4f4;
+  --color-neutral-200: #eae7e7;
+  --color-neutral-300: #d7d3d3;
+  --color-neutral-400: #bab6b6;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #7d7979;
+  --color-neutral-700: #605d5d;
+  --color-neutral-800: #444141;
+  --color-neutral-900: #2d2b2b;
+
+  --color-accent-100: #fff2ef;
+  --color-accent-200: #ffe0d9;
+  --color-accent-300: #ffc4b8;
+  --color-accent-400: #ff9783;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #dd2b0f;
+  --color-accent-700: #ae1800;
+  --color-accent-800: #7c1405;
+  --color-accent-900: #4d170e;
+
+  --color-accent-2-100: #fff2ef;
+  --color-accent-2-200: #ffe0da;
+  --color-accent-2-300: #ffc4b9;
+  --color-accent-2-400: #ff9784;
+  --color-accent-2-500: #ef6853;
+  --color-accent-2-600: #c94b39;
+  --color-accent-2-700: #9e3526;
+  --color-accent-2-800: #71261b;
+  --color-accent-2-900: #471d16;
+
+  --font-heading: "Archivo", system-ui, sans-serif;
+  --font-heading-weight: 800;
+  --font-body: "Archivo", system-ui, sans-serif;
+
+  --space-1: 4.0px;
+  --space-2: 8.0px;
+  --space-3: 12.0px;
+  --space-4: 16.0px;
+  --space-6: 24.0px;
+  --space-8: 32.0px;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+
+  /* Elevation — derived from the ground: soft ink-tinted shadows on a
+     light theme, a hairline edge + ambient darkness on a dark one. */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+
+.grayscale{filter:grayscale(1) contrast(1.08)}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Components — built with the tokens above. Plain CSS
+   on plain HTML: no JavaScript, no build step. Each class is documented in
+   readme.md and demonstrated in foundations/ and components/.
+   ══════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-size: 15px; line-height: 1.55; font-weight: 400; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+}
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; }
+h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0; }
+figcaption {
+  font-size: 11px; margin-top: var(--space-1);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.text-muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+/* — rules — */
+.hr {
+  height: 2px; border: 0; margin: var(--space-4) 0;
+  background: var(--color-divider);
+}
+
+/* — buttons — */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 14px; line-height: 1.2; color: var(--color-text); /* matches the .input's 14px —
+     the pair sits side by side in sign-up rows */
+  background: transparent; border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--color-accent); color: var(--color-bg); }
+.btn-primary:hover { background: var(--color-accent-600); }
+.btn-primary:active { background: var(--color-accent-700); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-ghost:active { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn-icon { width: 36px; height: 36px; padding: 0; }
+.btn-block { width: 100%; margin-top: var(--space-2); justify-content: flex-start; text-align: left; }
+
+/* — forms — */
+.field > label {
+  display: block; font-size: 12px; margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input {
+  width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+  font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+textarea.input { min-height: 90px; resize: vertical; }
+.radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.radio input, .seg-opt input {
+  position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
+}
+.radio .dot {
+  width: 16px; height: 16px; flex: none; border-radius: 50%;
+  border: 1.5px solid var(--color-divider);
+}
+.radio:hover .dot { border-color: var(--color-accent); }
+.radio input:checked + .dot {
+  border-color: var(--color-accent); background: var(--color-accent);
+  box-shadow: inset 0 0 0 4px var(--color-bg);
+}
+.radio input:focus-visible + .dot { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.seg {
+  display: inline-flex; overflow: hidden;
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.seg-opt {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+}
+.seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
+.seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-bg); }
+.seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+/* — cards — */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface);
+}
+.card-kicker { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+.card-title {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 17px; line-height: 1.2;
+}
+.card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
+.card-meta {
+  display: flex; align-items: center; gap: 6px; font-size: 11px;
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+
+/* — tags — */
+.tag {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+.tag-accent { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-accent-2 { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+.tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent); }
+
+/* — navigation — */
+.nav {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 2px solid var(--color-divider);
+}
+.nav-brand {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 18px; margin-right: auto;
+}
+.nav a { color: inherit; text-decoration: none; font-size: 14px; }
+.nav a:hover, .nav a[aria-current='page'] { color: var(--color-accent); }
+
+/* — tables — */
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th {
+  text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2); border-bottom: 2px solid var(--color-divider);
+}
+.table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+.table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+
+/* — dialog — */
+.dialog-backdrop {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  padding: var(--space-4);
+  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+}
+.dialog {
+  width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: var(--shadow-lg);
+}
+.dialog-title {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 20px;
+}
+.dialog-body { font-size: 14px; opacity: 0.85; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+
+
+</style>
+  <script>
+/* @ds-bundle: {"format":4,"namespace":"Modernist_modern","components":[],"sourceHashes":{},"inlinedExternals":[],"unexposedExports":[]} */
+
+(() => {
+
+const __ds_ns = (window.Modernist_modern = window.Modernist_modern || {});
+
+const __ds_scope = {};
+
+(__ds_ns.__errors = __ds_ns.__errors || []);
+
+})();
+
+</script>
+  <style>
+    body{margin:0}
+    a{color:var(--color-accent);text-underline-offset:3px}
+    a:hover{color:var(--color-accent-600)}
+    @keyframes simPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent)}50%{box-shadow:0 0 0 7px transparent}}
+    .sim-cursor{animation:simPulse 0.7s ease-in-out infinite;outline:3px solid var(--color-text);outline-offset:2px;position:relative;z-index:2}
+    .sim-visited{outline:2px solid var(--color-divider);outline-offset:1px}
+    @keyframes toastIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .sim-toast{animation:toastIn 0.2s ease-out}
+    .seg-opt { font-size: 11.5px; padding: 4px 6px; }
+  </style>
+</helmet>
+<div style="height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden">
+
+  <header style="width:100%;flex:none">
+    <h1 style="font-size:22px;margin-bottom:2px">Métodos de asignación de espacio en disco</h1>
+    <p class="text-muted" style="max-width:64ch;margin-bottom:var(--space-2);font-size:12.5px">Crea y elimina archivos, y observa cómo cada técnica reparte y recorre los bloques del disco.</p>
+    <div class="hr" style="margin:var(--space-2) 0"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);flex-wrap:wrap;padding:var(--space-2) 0">
+      <div style="display:flex;align-items:center;gap:var(--space-2)">
+        <label for="method-select" style="font-size:13px;font-weight:600;white-space:nowrap">Método:</label>
+        <select id="method-select" class="input" style="min-width:200px;font-size:13px" value="{{currentMethod}}" onChange="{{onMethodChange}}">
+          <option value="contigua">Contigua</option>
+          <option value="enlazada">Enlazada</option>
+          <option value="indexada">Indexada</option>
+          <option value="extensiones">Extensiones</option>
+          <option value="multinivel">Multinivel</option>
+          <option value="fat">FAT</option>
+          <option value="bitmap">Mapa de bits (Bitmap)</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:var(--space-4)">
+        <sc-if value="{{isIndexada}}" hint-placeholder-val="{{true}}">
+          <label style="font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:var(--space-1);cursor:pointer;background:var(--color-surface);padding:var(--space-1) var(--space-2);border-radius:4px;border:1px solid var(--color-divider)">
+            <input type="checkbox" checked="{{useRamCache}}" onChange="{{toggleRamCache}}" />
+            Usar Caché RAM (Modo Real)
+          </label>
+        </sc-if>
+        <p style="margin:0;font-size:13px" class="text-muted">{{methodCaption}}</p>
+      </div>
+    </div>
+  </header>
+
+  <main style="width:100%;display:grid;grid-template-columns:280px 1fr 340px;gap:var(--space-4);flex:1;min-height:0">
+
+    <div style="display:flex;flex-direction:column;gap:var(--space-3);min-height:0;overflow:auto">
+
+      <div class="card" style="padding:var(--space-3)">
+        <div class="card-kicker">Crear archivo</div>
+        <div style="display:flex; gap:var(--space-2); margin-bottom:var(--space-3)">
+          <div class="field" style="flex:1">
+            <label for="sim-size">Tamaño</label>
+            <input class="input" id="sim-size" type="number" min="1" value="{{sizeInput}}" onChange="{{onSizeChange}}" />
+          </div>
+          <div class="field" style="flex:1">
+            <label for="sim-start">Inicio (opc)</label>
+            <input class="input" id="sim-start" type="number" min="0" value="{{startInput}}" onChange="{{onStartChange}}" placeholder="Auto" />
+          </div>
+        </div>
+        <sc-if value="{{hasError}}" hint-placeholder-val="{{false}}">
+          <div class="sim-toast" style="background:var(--color-accent-100);color:var(--color-accent-800);border:1px solid var(--color-accent-300);padding:var(--space-2) var(--space-3);font-size:12.5px;line-height:1.4;margin-bottom:var(--space-3)">{{errorText}}</div>
+        </sc-if>
+        <button type="button" class="btn btn-primary btn-block" onClick="{{createFile}}" disabled="{{autoRunning}}">Crear archivo<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+        <div class="hr" style="margin:var(--space-3) 0"></div>
+        <sc-if value="{{autoRunning}}" hint-placeholder-val="{{false}}">
+          <button type="button" class="btn btn-secondary btn-block" onClick="{{stopAutoDemo}}">Detener demo</button>
+        </sc-if>
+        <sc-if value="{{notAutoRunning}}" hint-placeholder-val="{{true}}">
+          <button type="button" class="btn btn-ghost btn-block" onClick="{{runAutoDemo}}">Demo automática<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+        </sc-if>
+        <p class="text-muted" style="font-size:11px;margin:var(--space-2) 0 0;line-height:1.4">Crea 6 archivos, borra 2 y pide uno grande — cambia de pestaña para ver a cuál método le falla.</p>
+      </div>
+
+      <div class="card" style="padding:var(--space-3)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between">
+          <div class="card-kicker" style="margin-bottom:0">Archivos ({{fileCount}})</div>
+        </div>
+        <div class="hr" style="margin:var(--space-2) 0 var(--space-2)"></div>
+        <sc-if value="{{hasFiles}}" hint-placeholder-val="{{true}}">
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{viewFiles}}" as="file" hint-placeholder-count="2">
+              <div style="padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+                <div style="display:flex;align-items:center;gap:var(--space-2)">
+                  <div style="width:14px;height:14px;flex:none;background:{{file.color}}"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-family:var(--font-heading);font-weight:700;font-size:13.5px">Archivo {{file.name}}</div>
+                    <div class="text-muted" style="font-size:11.5px">{{file.size}} bloques</div>
+                    <div class="text-muted" style="font-size:11px; margin-top:2px">{{file.dirTable}}</div>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-icon" aria-label="Leer" onClick="{{file.onRead}}" disabled="{{autoRunning}}" style="width:30px;height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>
+                  <button type="button" class="btn btn-ghost btn-icon" aria-label="Eliminar" onClick="{{file.onDelete}}" disabled="{{autoRunning}}" style="width:30px;height:30px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+                </div>
+                <sc-if value="{{file.isReading}}" hint-placeholder-val="{{false}}">
+                  <div style="font-size:11px;color:var(--color-accent-700);margin-top:var(--space-1)">Leyendo · {{file.readingLabel}}</div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{hasNoFiles}}" hint-placeholder-val="{{false}}">
+          <p class="text-muted" style="font-size:12.5px;margin:0">Sin archivos todavía.</p>
+        </sc-if>
+      </div>
+
+      <div class="card" style="padding:var(--space-3)">
+        <div class="card-kicker">Bloques del disco</div>
+        <div style="display:flex;height:8px;overflow:hidden;margin:var(--space-2) 0">
+          <div style="width:{{usedPercent}}%;background:var(--color-text)"></div>
+          <div style="width:{{freePercent}}%;background:var(--color-neutral-300)"></div>
+        </div>
+        <p class="text-muted" style="font-size:12.5px;margin:0">{{usedCount}} usados · {{freeCount}} libres de {{totalBlocks}}</p>
+      </div>
+
+      <sc-if value="{{isFat}}" hint-placeholder-val="{{false}}">
+        <div class="card" style="padding:var(--space-3)">
+          <div class="card-kicker">Tabla FAT (En RAM)</div>
+          <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;margin-top:var(--space-2)">
+            <sc-for list="{{fatTable}}" as="entry" hint-placeholder-count="100">
+               <div style="font-size:8.5px;font-weight:700;font-family:monospace;background:{{entry.bg}};color:{{entry.color}};text-align:center;padding:3px 0;border-radius:2px;min-height:14px;display:flex;align-items:center;justify-content:center" title="Bloque {{entry.index}} -> {{entry.val}}">
+                 {{entry.val}}
+               </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isBitmap}}" hint-placeholder-val="{{false}}">
+        <div class="card" style="padding:var(--space-3)">
+          <div class="card-kicker">Mapa de Bits (En RAM)</div>
+          <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;margin-top:var(--space-2)">
+            <sc-for list="{{bitmapTable}}" as="bit" hint-placeholder-count="100">
+               <div style="font-size:9px;font-family:monospace;font-weight:700;background:{{bit.bg}};color:{{bit.color}};text-align:center;padding:3px 0;border-radius:2px" title="Bloque {{bit.index}}">
+                 {{bit.val}}
+               </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;padding:var(--space-3) var(--space-4);overflow:hidden">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap;flex:none">
+        <div class="card-title" style="margin-bottom:0;font-size:18px">{{methodLabel}}</div>
+        <div style="display:flex; gap:var(--space-2)">
+          <sc-if value="{{isDefragmentable}}" hint-placeholder-val="{{false}}">
+            <button type="button" class="btn btn-ghost" onClick="{{defragment}}" disabled="{{autoRunning}}" style="font-size:12.5px; color:var(--color-text)">Compactar</button>
+          </sc-if>
+          <button type="button" class="btn btn-ghost" onClick="{{resetMethod}}" disabled="{{autoRunning}}" style="font-size:12.5px">Vaciar disco<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.64-6.36"/><path d="M3 4v5h5"/></svg></button>
+        </div>
+      </div>
+      <sc-if value="{{autoRunning}}" hint-placeholder-val="{{false}}">
+        <div style="background:var(--color-accent-100);color:var(--color-accent-700);border:1px solid var(--color-accent-300);padding:var(--space-1) var(--space-2);font-size:11.5px;font-weight:700;display:inline-block;margin-top:var(--space-1)">EJECUTANDO DEMO AUTOMÁTICA…</div>
+      </sc-if>
+      <sc-if value="{{isReadingActive}}" hint-placeholder-val="{{false}}">
+        <div style="background:var(--color-surface);border:1px solid var(--color-divider);padding:var(--space-2) var(--space-3);font-size:12.5px;margin:var(--space-2) 0 0;flex:none;display:flex;justify-content:space-between">
+          <span>Leyendo archivo <strong>{{readingFileName}}</strong> → bloque físico #{{readingBlockIndex}} (paso {{readingStepLabel}})</span>
+          <span style="color:var(--color-error);font-family:monospace;font-weight:bold">Tiempo total: {{readingTimeMs}} ms</span>
+        </div>
+      </sc-if>
+      <div style="display:grid;grid-template-columns:repeat(10,minmax(0,1fr));grid-template-rows:repeat(10,minmax(0,1fr));gap:4px;flex:1;min-height:0;margin-top:var(--space-3)">
+        <sc-for list="{{viewBlocks}}" as="block" hint-placeholder-count="100">
+          <div class="{{block.extraClass}}" title="{{block.tooltip}}" style="display:flex;align-items:center;justify-content:center;position:relative;background:{{block.bg}};color:{{block.textColor}};border:{{block.border}};font-family:var(--font-heading);font-weight:700;font-size:12px;overflow:hidden;border-radius:4px">
+            {{block.index}}
+            <sc-if value="{{block.isIndex}}" hint-placeholder-val="{{false}}">
+              <span style="position:absolute;bottom:2px;right:3px;font-size:7px;letter-spacing:0.04em;font-weight:800">IDX</span>
+            </sc-if>
+            <sc-if value="{{block.hasPointer}}" hint-placeholder-val="{{false}}">
+              <span style="position:absolute;bottom:2px;left:2px;font-size:7px;font-weight:800;white-space:nowrap">{{block.pointerText}}</span>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- TERCERA COLUMNA: Visualizador Físico Mecánico -->
+    <div class="card" style="display:flex;flex-direction:column;min-height:0;height:100%;padding:var(--space-3) var(--space-4);overflow:hidden;align-items:center;justify-content:center;position:relative">
+      <div class="card-title" style="align-self:flex-start;margin-bottom:0;font-size:18px">Física del Disco</div>
+      <p class="text-muted" style="align-self:flex-start;font-size:12px;margin:var(--space-1) 0 var(--space-4);line-height:1.4">Vista del plato giratorio (Latencia Rotacional) y actuador lineal (Tiempo de Búsqueda).</p>
+      
+      <div style="position:relative;width:300px;height:300px;margin:auto">
+        <svg width="300" height="300" viewBox="-150 -150 300 300" style="position:absolute;top:0;left:0">
+           <!-- Base platter (Metallic Dark) -->
+           <circle r="140" fill="#6082B6" stroke="#465b73" stroke-width="4" />
+           
+           <!-- Rotational Group (Platter) -->
+           <g style="transform: rotate({{diskRotation}}deg); transition: transform {{seekTransitionMs}}ms ease-in-out">
+             <!-- Sectors & Tracks combined in one loop for 10 elements -->
+             <sc-for list="{{[0,1,2,3,4,5,6,7,8,9]}}" as="i" hint-placeholder-count="10">
+               <!-- Sector lines -->
+               <line x1="0" y1="0" x2="0" y2="-140" stroke="#373d45" stroke-width="2" style="transform: rotate({{i * 36}}deg)" />
+               <!-- Tracks -->
+               <circle r="{{ 130 - (i * 10) }}" fill="none" stroke="#373d45" stroke-width="1.5" />
+             </sc-for>
+
+             <!-- Active Sector Highlight (Bright Red Dot with Glow) -->
+             <sc-if value="{{isReadingActive}}" hint-placeholder-val="{{false}}">
+               <circle cx="{{activeBlockX}}" cy="{{activeBlockY}}" r="7" fill="#ff3333" stroke="#ffd700" stroke-width="2" />
+             </sc-if>
+           </g>
+
+           <!-- Spindle (Centro) -->
+           <circle r="15" fill="#4a5568" stroke="#2d3748" stroke-width="2" />
+           <circle r="6" fill="#1a202c" />
+
+           <!-- Arm Mechanism (Linear Actuator along Y axis) -->
+           <!-- Rail -->
+           <line x1="0" y1="-145" x2="0" y2="-30" stroke="#a0aec0" stroke-width="4" stroke-dasharray="6 4" stroke-linecap="round" />
+           
+           <!-- Head assembly -->
+           <g style="transform: translateY({{armTargetY}}px); transition: transform {{seekTransitionMs}}ms ease-in-out">
+             <!-- Shadow for depth -->
+             <rect x="-10" y="-10" width="20" height="20" fill="rgba(0,0,0,0.3)" rx="4" transform="translate(2, 2)" />
+             <!-- Main Block -->
+             <rect x="-10" y="-10" width="20" height="20" fill="#cbd5e0" stroke="#718096" stroke-width="1.5" rx="4" />
+             <rect x="-6" y="-6" width="12" height="12" fill="#e2e8f0" rx="2" />
+             <!-- Red Laser/Reader -->
+             <circle cx="0" cy="0" r="3" fill="#e53e3e" />
+           </g>
+        </svg>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const TOTAL_BLOCKS = 100;
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const FILE_COLORS = ['#ec3013', '#201e1d', '#ae1800', '#605d5d', '#7c1405', '#444141', '#333333', '#882211', '#111111', '#551100'];
+const METHOD_META = {
+  contigua: { label: 'Asignación contigua', caption: 'Cada archivo ocupa bloques consecutivos.' },
+  enlazada: { label: 'Asignación enlazada', caption: 'Bloques dispersos; cada uno apunta al siguiente.' },
+  indexada: { label: 'Asignación indexada', caption: 'Un bloque índice guarda los punteros a cada bloque de datos.' },
+  extensiones: { label: 'Asignación por extensiones', caption: 'Agrupa bloques en ráfagas contiguas (usado en ext4, NTFS).' },
+  multinivel: { label: 'Asignación multinivel', caption: 'Índices de múltiples niveles para archivos grandes.' },
+  fat: { label: 'Tabla de Asignación de Archivos (FAT)', caption: 'Los punteros se guardan en una tabla centralizada en RAM/Disco.' },
+  bitmap: { label: 'Mapa de bits (Bitmap)', caption: 'Usa un array de bits para rastrear espacio libre y asignar.' }
+};
+
+function freshSim() {
+  return { blocks: Array(TOTAL_BLOCKS).fill(null), blockRole: Array(TOTAL_BLOCKS).fill(null), files: [], counter: 0 };
+}
+
+const AUTO_DEMO_STEPS = [
+  { type: 'create', size: 12 }, { type: 'create', size: 15 }, { type: 'create', size: 10 },
+  { type: 'create', size: 8 }, { type: 'create', size: 20 }, { type: 'create', size: 14 },
+  { type: 'delete', fileIndex: 1 }, { type: 'delete', fileIndex: 3 },
+  { type: 'create', size: 18 }
+];
+
+class Component extends DCLogic {
+  state = {
+    method: 'contigua',
+    sims: { contigua: freshSim(), enlazada: freshSim(), indexada: freshSim(), extensiones: freshSim(), multinivel: freshSim(), fat: freshSim(), bitmap: freshSim() },
+    sizeInput: 10,
+    startInput: '',
+    error: null,
+    reading: null,
+    autoRunning: false,
+    useRamCache: false
+  };
+
+  componentWillUnmount() {
+    clearInterval(this.readTimer);
+    clearTimeout(this.readEndTimer);
+    clearTimeout(this.errorTimer);
+    clearTimeout(this.autoTimer);
+  }
+
+  selectMethod(method) {
+    if (this.state.reading) { clearInterval(this.readTimer); clearTimeout(this.readEndTimer); }
+    this.setState({ method, reading: null, error: null });
+  }
+
+  applyStep(method, sim, step) {
+    if (step.type === 'create') {
+      const result = this.allocate(method, sim, step.size);
+      if (!result.ok) return { sim, error: result.reason };
+      const counter = sim.counter;
+      const file = {
+        id: `f${Date.now()}${counter}${Math.random().toString(36).slice(2, 5)}`,
+        name: LETTERS[counter % LETTERS.length],
+        color: FILE_COLORS[counter % FILE_COLORS.length],
+        size: step.size, blocks: result.blocks, indexBlock: result.indexBlock ?? null
+      };
+      const newBlocks = sim.blocks.slice();
+      const newRole = sim.blockRole.slice();
+      file.blocks.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'data'; });
+      if (file.indexBlock != null) { newBlocks[file.indexBlock] = file.id; newRole[file.indexBlock] = 'index'; }
+      if (file.secondaryIndexes) {
+        file.secondaryIndexes.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'index2'; });
+      }
+      return { sim: { blocks: newBlocks, blockRole: newRole, files: [...sim.files, file], counter: counter + 1 }, error: null };
+    }
+    if (step.type === 'delete') {
+      const file = sim.files[step.fileIndex];
+      if (!file) return { sim, error: null };
+      const newBlocks = sim.blocks.slice();
+      const newRole = sim.blockRole.slice();
+      file.blocks.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+      if (file.indexBlock != null) { newBlocks[file.indexBlock] = null; newRole[file.indexBlock] = null; }
+      if (file.secondaryIndexes) {
+        file.secondaryIndexes.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+      }
+      return { sim: { ...sim, blocks: newBlocks, blockRole: newRole, files: sim.files.filter((f, i) => i !== step.fileIndex) }, error: null };
+    }
+    return { sim, error: null };
+  }
+
+  runAutoDemo() {
+    if (this.state.autoRunning) return;
+    clearInterval(this.readTimer); clearTimeout(this.readEndTimer);
+    const activeMethod = this.state.method;
+    const others = ['contigua', 'enlazada', 'indexada', 'extensiones', 'multinivel', 'fat', 'bitmap'].filter(m => m !== activeMethod);
+    this.setState(s => {
+      const newSims = { ...s.sims };
+      others.forEach(m => {
+        let sim = freshSim();
+        AUTO_DEMO_STEPS.forEach(step => { sim = this.applyStep(m, sim, step).sim; });
+        newSims[m] = sim;
+      });
+      newSims[activeMethod] = freshSim();
+      return { sims: newSims, autoRunning: true, error: null, reading: null };
+    });
+    this.autoStepIndex = 0;
+    this.autoTimer = setTimeout(() => this.runAutoStep(activeMethod), 700);
+  }
+
+  runAutoStep(method) {
+    if (this.autoStepIndex >= AUTO_DEMO_STEPS.length) { this.setState({ autoRunning: false }); return; }
+    const step = AUTO_DEMO_STEPS[this.autoStepIndex];
+    this.setState(s => {
+      const { sim: newSim, error } = this.applyStep(method, s.sims[method], step);
+      return { sims: { ...s.sims, [method]: newSim }, error: error ? { text: error } : null };
+    });
+    this.autoStepIndex++;
+    this.autoTimer = setTimeout(() => this.runAutoStep(method), 750);
+  }
+
+  stopAutoDemo() {
+    clearTimeout(this.autoTimer);
+    this.setState({ autoRunning: false });
+  }
+
+  showError(text) {
+    clearTimeout(this.errorTimer);
+    this.setState({ error: { text } });
+    this.errorTimer = setTimeout(() => this.setState({ error: null }), 4000);
+  }
+
+  allocateContigua(sim, size, preferredStart) {
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart > sim.blocks.length - size) return { ok: false, reason: `El archivo de tamaño ${size} no cabe empezando en el bloque ${preferredStart}.` };
+      for (let j = 0; j < size; j++) {
+        if (sim.blocks[preferredStart + j] !== null) return { ok: false, reason: `El bloque ${preferredStart + j} ya está ocupado.` };
+      }
+      return { ok: true, blocks: Array.from({ length: size }, (_, j) => preferredStart + j) };
+    }
+    for (let start = 0; start <= sim.blocks.length - size; start++) {
+      let ok = true;
+      for (let j = 0; j < size; j++) if (sim.blocks[start + j] !== null) { ok = false; break; }
+      if (ok) return { ok: true, blocks: Array.from({ length: size }, (_, j) => start + j) };
+    }
+    const free = sim.blocks.filter(b => b === null).length;
+    if (free >= size) return { ok: false, reason: `Fragmentación: hay ${free} bloques libres, pero ninguna zona contigua de ${size}.` };
+    return { ok: false, reason: `Espacio insuficiente: solo quedan ${free} bloques libres.` };
+  }
+
+  allocateEnlazada(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de inicio inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque de inicio ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < size; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < size) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: solo quedan ${free} bloques libres.` };
+    }
+    return { ok: true, blocks: freeIdx };
+  }
+
+  allocateIndexada(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de índice inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque índice ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < size + 1; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < size + 1) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: se necesita 1 bloque índice + ${size} de datos.` };
+    }
+    return { ok: true, indexBlock: freeIdx[0], blocks: freeIdx.slice(1) };
+  }
+
+  allocateExtensiones(sim, size, preferredStart) {
+    const freeIdx = [];
+    const extents = [];
+    let indexBlock = null;
+
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de índice inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque índice ${preferredStart} está ocupado.` };
+      indexBlock = preferredStart;
+    }
+
+    if (indexBlock === null) {
+      for (let i = 0; i < sim.blocks.length; i++) {
+        if (sim.blocks[i] === null) { indexBlock = i; break; }
+      }
+    }
+    if (indexBlock === null) return { ok: false, reason: `No hay espacio ni para el bloque índice.` };
+
+    let remaining = size;
+    let i = 0;
+    while (i < sim.blocks.length && remaining > 0) {
+      if (i === indexBlock || sim.blocks[i] !== null) { i++; continue; }
+      let start = i;
+      let length = 0;
+      while (i < sim.blocks.length && remaining > 0 && sim.blocks[i] === null && i !== indexBlock) {
+        length++; remaining--; freeIdx.push(i); i++;
+      }
+      extents.push({ start, length });
+    }
+
+    if (remaining > 0) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: se necesita 1 bloque índice + ${size} de datos.` };
+    }
+    return { ok: true, indexBlock, blocks: freeIdx, extents };
+  }
+
+  allocateMultinivel(sim, size, preferredStart) {
+    const freeIdx = [];
+    if (preferredStart !== null && preferredStart !== undefined) {
+      if (preferredStart < 0 || preferredStart >= sim.blocks.length) return { ok: false, reason: `Bloque de inicio inválido.` };
+      if (sim.blocks[preferredStart] !== null) return { ok: false, reason: `El bloque ${preferredStart} está ocupado.` };
+      freeIdx.push(preferredStart);
+    }
+    const maxPointersPerBlock = 5;
+    const numSecondaryIndexes = Math.ceil(size / maxPointersPerBlock);
+    const requiresMultiLevel = size > maxPointersPerBlock;
+    const numIndexes = requiresMultiLevel ? 1 + numSecondaryIndexes : 1; 
+    const totalNeeded = size + numIndexes;
+
+    for (let i = 0; i < sim.blocks.length && freeIdx.length < totalNeeded; i++) {
+      if (sim.blocks[i] === null && i !== preferredStart) freeIdx.push(i);
+    }
+    if (freeIdx.length < totalNeeded) {
+      const free = sim.blocks.filter(b => b === null).length;
+      return { ok: false, reason: `Espacio insuficiente: requiere ${numIndexes} bloques índice y ${size} de datos, pero hay ${free} libres.` };
+    }
+    const indexBlock = freeIdx[0];
+    let secondaryIndexes = [];
+    let blocks = [];
+    if (requiresMultiLevel) {
+       secondaryIndexes = freeIdx.slice(1, 1 + numSecondaryIndexes);
+       blocks = freeIdx.slice(1 + numSecondaryIndexes);
+    } else {
+       blocks = freeIdx.slice(1);
+    }
+    return { ok: true, indexBlock, secondaryIndexes, blocks };
+  }
+
+  allocate(method, sim, size, preferredStart) {
+    if (method === 'contigua' || method === 'bitmap') return this.allocateContigua(sim, size, preferredStart);
+    if (method === 'enlazada' || method === 'fat') return this.allocateEnlazada(sim, size, preferredStart);
+    if (method === 'extensiones') return this.allocateExtensiones(sim, size, preferredStart);
+    if (method === 'multinivel') return this.allocateMultinivel(sim, size, preferredStart);
+    return this.allocateIndexada(sim, size, preferredStart);
+  }
+
+  createFile() {
+    if (this.state.autoRunning) return;
+    const method = this.state.method;
+    const size = Math.max(1, Number(this.state.sizeInput) || 1);
+    let preferredStart = null;
+    if (this.state.startInput !== '') {
+      preferredStart = Number(this.state.startInput);
+    }
+    
+    const sim = this.state.sims[method];
+    const result = this.allocate(method, sim, size, preferredStart);
+
+    if (!result.ok) { this.showError(result.reason); return; }
+
+    const counter = sim.counter;
+    const file = {
+      id: `f${Date.now()}${counter}`,
+      name: LETTERS[counter % LETTERS.length],
+      color: FILE_COLORS[counter % FILE_COLORS.length],
+      size,
+      blocks: result.blocks,
+      indexBlock: result.indexBlock ?? null,
+      secondaryIndexes: result.secondaryIndexes ?? null,
+      extents: result.extents ?? null
+    };
+    const newBlocks = sim.blocks.slice();
+    const newRole = sim.blockRole.slice();
+    file.blocks.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'data'; });
+    if (file.indexBlock != null) { newBlocks[file.indexBlock] = file.id; newRole[file.indexBlock] = 'index'; }
+    if (file.secondaryIndexes) {
+      file.secondaryIndexes.forEach(i => { newBlocks[i] = file.id; newRole[i] = 'index2'; });
+    }
+    const newSim = { blocks: newBlocks, blockRole: newRole, files: [...sim.files, file], counter: counter + 1 };
+    this.setState(s => ({ sims: { ...s.sims, [method]: newSim }, error: null, startInput: '' }));
+  }
+
+  defragment() {
+    if (this.state.autoRunning || (this.state.method !== 'contigua' && this.state.method !== 'bitmap')) return;
+    const sim = this.state.sims[this.state.method];
+    const newBlocks = Array(TOTAL_BLOCKS).fill(null);
+    const newRole = Array(TOTAL_BLOCKS).fill(null);
+    const newFiles = [];
+    
+    let currentFreeIdx = 0;
+    sim.files.forEach(f => {
+      const newFileBlocks = [];
+      for (let j = 0; j < f.size; j++) {
+        newBlocks[currentFreeIdx + j] = f.id;
+        newRole[currentFreeIdx + j] = 'data';
+        newFileBlocks.push(currentFreeIdx + j);
+      }
+      newFiles.push({ ...f, blocks: newFileBlocks });
+      currentFreeIdx += f.size;
+    });
+    
+    this.setState(s => ({ sims: { ...s.sims, [this.state.method]: { ...sim, blocks: newBlocks, blockRole: newRole, files: newFiles } }, reading: null }));
+  }
+
+  deleteFile(method, fileId) {
+    if (this.state.autoRunning) return;
+    const sim = this.state.sims[method];
+    const file = sim.files.find(f => f.id === fileId);
+    if (!file) return;
+    const newBlocks = sim.blocks.slice();
+    const newRole = sim.blockRole.slice();
+    file.blocks.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+    if (file.indexBlock != null) { newBlocks[file.indexBlock] = null; newRole[file.indexBlock] = null; }
+    if (file.secondaryIndexes) {
+      file.secondaryIndexes.forEach(i => { newBlocks[i] = null; newRole[i] = null; });
+    }
+    const newSim = { ...sim, blocks: newBlocks, blockRole: newRole, files: sim.files.filter(f => f.id !== fileId) };
+    let reading = this.state.reading;
+    if (reading && reading.method === method && reading.fileId === fileId) {
+      clearTimeout(this.readTimer); clearTimeout(this.readEndTimer); reading = null;
+    }
+    this.setState(s => ({ sims: { ...s.sims, [method]: newSim }, reading }));
+  }
+
+  resetMethod(method) {
+    if (this.state.autoRunning) return;
+    if (this.state.reading && this.state.reading.method === method) {
+      clearTimeout(this.readTimer); clearTimeout(this.readEndTimer);
+    }
+    this.setState(s => ({
+      sims: { ...s.sims, [method]: freshSim() },
+      reading: s.reading && s.reading.method === method ? null : s.reading
+    }));
+  }
+
+  computeReadPath(method, file) {
+    if (method === 'extensiones') {
+      const path = [file.indexBlock];
+      for (let i = 0; i < file.blocks.length; i++) path.push(file.blocks[i]);
+      return path;
+    }
+    if (method === 'indexada') {
+      const path = [];
+      if (this.state.useRamCache) {
+        // En Modo Real (RAM Cache), va al índice una vez y luego directo a los datos
+        path.push(file.indexBlock);
+        for (let i = 0; i < file.blocks.length; i++) {
+          path.push(file.blocks[i]);
+        }
+      } else {
+        // Modo Didáctico (Yoyo)
+        for (let i = 0; i < file.blocks.length; i++) {
+          path.push(file.indexBlock);
+          path.push(file.blocks[i]);
+        }
+      }
+      return path;
+    }
+    if (method === 'multinivel') {
+      const path = [file.indexBlock];
+      if (file.secondaryIndexes && file.secondaryIndexes.length > 0) {
+        const maxP = 5;
+        for (let i = 0; i < file.blocks.length; i++) {
+           if (i % maxP === 0) {
+              const secIdx = Math.floor(i / maxP);
+              path.push(file.secondaryIndexes[secIdx]);
+           }
+           path.push(file.blocks[i]);
+        }
+      } else {
+        for (let i = 0; i < file.blocks.length; i++) path.push(file.blocks[i]);
+      }
+      return path;
+    }
+    if (method === 'fat') {
+       return file.blocks.slice();
+    }
+    return file.blocks.slice();
+  }
+
+  startReading(file, method) {
+    if (this.state.autoRunning) return;
+    clearTimeout(this.readTimer);
+    clearTimeout(this.readEndTimer);
+    const path = this.computeReadPath(method, file);
+    
+    // El brazo se mueve al primer bloque
+    this.setState({ reading: { method, fileId: file.id, step: 0, total: path.length, path, timeMs: 0, seekTarget: path[0], currentDelay: 300 } }, () => {
+      const nextStep = () => {
+        const s = this.state;
+        if (!s.reading) return;
+        const step = s.reading.step;
+        
+        if (step + 1 >= s.reading.total) {
+          this.readEndTimer = setTimeout(() => this.setState({ reading: null }), 1000);
+          return;
+        }
+
+        const currentBlock = s.reading.path[step];
+        const nextBlock = s.reading.path[step + 1];
+        
+        const distance = Math.abs(nextBlock - currentBlock);
+        
+        let delay = 0;
+        if (method === 'contigua' || method === 'bitmap') {
+          delay = 50 + (distance * 20); // Lectura secuencial ultra rápida
+        } else if (method === 'enlazada') {
+          delay = 300 + (distance * 40); // Penalización alta: debe leer el puntero, pasarlo a CPU, y recién buscar el siguiente
+        } else if (method === 'indexada') {
+          if (this.state.useRamCache) {
+             delay = 80 + (distance * 40); // Punteros en RAM: no hay tiempo de lectura de puntero en disco, solo movimiento físico
+          } else {
+             delay = 150 + (distance * 40); // Modo Didáctico
+          }
+        } else if (method === 'extensiones') {
+          if (distance === 1 && nextBlock > currentBlock) {
+             delay = 50 + (distance * 20); // Lectura secuencial rápida dentro de la misma extensión
+          } else {
+             delay = 100 + (distance * 40); // Salto físico hacia otra extensión
+          }
+        } else if (method === 'multinivel') {
+          delay = 150 + (distance * 40);
+        } else if (method === 'fat') {
+          delay = 100 + (distance * 30);
+        }
+
+        // 1. Iniciar movimiento físico de las piezas mecánicas
+        this.setState(prevState => ({
+          reading: prevState.reading ? { ...prevState.reading, seekTarget: nextBlock, currentDelay: delay } : null
+        }), () => {
+          // 2. Esperar a que las piezas terminen de moverse para registrar la lectura lógica
+          this.readTimer = setTimeout(() => {
+            this.setState(prevState => ({
+              reading: prevState.reading ? { ...prevState.reading, step: prevState.reading.step + 1, timeMs: prevState.reading.timeMs + delay } : null
+            }), nextStep);
+          }, delay);
+        });
+      };
+      
+      this.readTimer = setTimeout(nextStep, 300);
+    });
+  }
+
+  renderVals() {
+    const { method, sims, sizeInput, startInput, error, reading } = this.state;
+    const sim = sims[method];
+    const meta = METHOD_META[method];
+    const fileById = {};
+    sim.files.forEach(f => { fileById[f.id] = f; });
+
+    const isReadingHere = !!(reading && reading.method === method);
+    const currentBlock = isReadingHere ? reading.path[reading.step] : null;
+    const visitedSet = isReadingHere ? new Set(reading.path.slice(0, reading.step)) : new Set();
+
+    const viewBlocks = [];
+    for (let i = 0; i < TOTAL_BLOCKS; i++) {
+      const fid = sim.blocks[i];
+      const file = fid ? fileById[fid] : null;
+      const isCurrent = isReadingHere && currentBlock === i;
+      const isVisited = isReadingHere && !isCurrent && visitedSet.has(i);
+      
+      let tooltip = "Libre";
+      let hasPointer = false;
+      let pointerText = "";
+      
+      if (file) {
+        if (sim.blockRole[i] === 'index') {
+          tooltip = `Archivo ${file.name} - Bloque Índice`;
+          if (method === 'extensiones') {
+             const exts = (file.extents || []).map(e => `[${e.start} a ${e.start + e.length - 1}]`).join(', ');
+             tooltip += `\nExtensiones: ${exts}`;
+          } else if (method === 'multinivel') {
+             tooltip = `Archivo ${file.name} - Bloque Índice Principal`;
+          }
+        } else if (sim.blockRole[i] === 'index2') {
+          tooltip = `Archivo ${file.name} - Bloque Índice Secundario`;
+        } else {
+          const idx = file.blocks.indexOf(i);
+          tooltip = `Archivo ${file.name} - Bloque Datos ${idx + 1}/${file.size}`;
+          if (method === 'enlazada' && idx < file.size - 1) {
+             hasPointer = true;
+             pointerText = `→${file.blocks[idx + 1]}`;
+          } else if (method === 'enlazada' && idx === file.size - 1) {
+             hasPointer = true;
+             pointerText = `→ -1`;
+          } else if (method === 'indexada') {
+             hasPointer = true;
+             pointerText = `↑${file.indexBlock}`;
+          } else if (method === 'extensiones') {
+             hasPointer = true;
+             pointerText = `EXT`;
+          } else if (method === 'multinivel') {
+             hasPointer = true; 
+             if (file.secondaryIndexes && file.secondaryIndexes.length > 0) {
+                pointerText = `↑${file.secondaryIndexes[Math.floor(idx / 5)]}`;
+             } else {
+                pointerText = `↑${file.indexBlock}`;
+             }
+          } else if (method === 'fat') {
+             hasPointer = true; pointerText = `FAT`;
+          } else if (method === 'bitmap') {
+             hasPointer = true; pointerText = `BIT`;
+          }
+        }
+      }
+
+      viewBlocks.push({
+        index: i,
+        bg: file ? file.color : 'var(--color-neutral-200)',
+        textColor: file ? 'var(--color-bg)' : 'var(--color-neutral-500)',
+        border: file ? ((sim.blockRole[i] === 'index' || sim.blockRole[i] === 'index2') ? '2px dashed var(--color-bg)' : '1px solid transparent') : '1px solid var(--color-neutral-400)',
+        isIndex: sim.blockRole[i] === 'index' || sim.blockRole[i] === 'index2',
+        extraClass: isCurrent ? 'sim-cursor' : (isVisited ? 'sim-visited' : ''),
+        tooltip,
+        hasPointer,
+        pointerText
+      });
+    }
+
+    const fatTable = [];
+    const bitmapTable = [];
+    if (method === 'fat' || method === 'bitmap') {
+      for (let i = 0; i < TOTAL_BLOCKS; i++) {
+        const fid = sim.blocks[i];
+        const file = fid ? fileById[fid] : null;
+        if (method === 'fat') {
+           let val = "";
+           let bg = "var(--color-neutral-200)";
+           let color = "var(--color-neutral-500)";
+           if (file) {
+              bg = file.color;
+              color = "var(--color-bg)";
+              const idx = file.blocks.indexOf(i);
+              if (idx < file.size - 1) {
+                 val = String(file.blocks[idx + 1]);
+              } else {
+                 val = "EOF";
+              }
+           }
+           fatTable.push({ index: i, val, bg, color });
+        }
+        if (method === 'bitmap') {
+           const isFree = fid === null;
+           bitmapTable.push({
+             index: i,
+             val: isFree ? "0" : "1",
+             bg: isFree ? "var(--color-neutral-200)" : "var(--color-text)",
+             color: isFree ? "var(--color-neutral-400)" : "var(--color-bg)"
+           });
+        }
+      }
+    }
+
+    const viewFiles = sim.files.map(f => {
+      const isReadingThis = isReadingHere && reading.fileId === f.id;
+      let dirTable = "";
+      if (method === 'contigua' || method === 'bitmap') dirTable = `Inicio: ${f.blocks[0]} | Longitud: ${f.size}`;
+      else if (method === 'enlazada') dirTable = `Inicio: ${f.blocks[0]} | Fin: ${f.blocks[f.blocks.length - 1]}`;
+      else if (method === 'fat') dirTable = `Inicio: ${f.blocks[0]} (usando FAT)`;
+      else if (method === 'indexada') dirTable = `Bloque Índice: ${f.indexBlock}`;
+      else if (method === 'extensiones') dirTable = `Índice: ${f.indexBlock} | Exts: ${f.extents ? f.extents.length : 0}`;
+      else if (method === 'multinivel') dirTable = `Índice Principal: ${f.indexBlock} | Secundarios: ${f.secondaryIndexes ? f.secondaryIndexes.length : 0}`;
+      
+      return {
+        id: f.id, name: f.name, color: f.color, size: f.size, dirTable,
+        isReading: isReadingThis,
+        readingLabel: isReadingThis ? `paso ${reading.step + 1}/${reading.total}` : '',
+        onRead: () => this.startReading(f, method),
+        onDelete: () => this.deleteFile(method, f.id)
+      };
+    });
+
+    const freeCount = sim.blocks.filter(b => b === null).length;
+    const usedCount = TOTAL_BLOCKS - freeCount;
+
+      const seekTarget = isReadingHere && reading.seekTarget !== undefined ? reading.seekTarget : currentBlock;
+      let diskRotation = 0;
+      let armTargetY = -140;
+      let activeBlockX = 0;
+      let activeBlockY = 0;
+
+      if (seekTarget !== null && seekTarget !== undefined) {
+         const track = Math.floor(seekTarget / 10);
+         const sector = seekTarget % 10;
+         const radius = 130 - (track * 10);
+         const angleDeg = sector * 36;
+         
+         diskRotation = -angleDeg;
+         armTargetY = -radius;
+
+         const angleRad = angleDeg * Math.PI / 180;
+         activeBlockX = radius * Math.sin(angleRad);
+         activeBlockY = -radius * Math.cos(angleRad);
+      }
+      
+      const seekTransitionMs = isReadingHere && reading.currentDelay ? reading.currentDelay : 0;
+
+      return {
+      isContigua: method === 'contigua', isEnlazada: method === 'enlazada', isIndexada: method === 'indexada', isExtensiones: method === 'extensiones', isMultinivel: method === 'multinivel', isFat: method === 'fat', isBitmap: method === 'bitmap',
+      isDefragmentable: method === 'contigua' || method === 'bitmap',
+      selectContigua: () => this.selectMethod('contigua'),
+      selectEnlazada: () => this.selectMethod('enlazada'),
+      selectIndexada: () => this.selectMethod('indexada'),
+      selectExtensiones: () => this.selectMethod('extensiones'),
+      selectMultinivel: () => this.selectMethod('multinivel'),
+      selectFat: () => this.selectMethod('fat'),
+      selectBitmap: () => this.selectMethod('bitmap'),
+      currentMethod: method,
+      onMethodChange: e => this.selectMethod(e.target.value),
+      useRamCache: this.state.useRamCache,
+      toggleRamCache: e => this.setState({ useRamCache: e.target.checked }),
+      methodLabel: meta.label, methodCaption: meta.caption,
+      sizeInput, startInput,
+      onSizeChange: e => this.setState({ sizeInput: e.target.value }),
+      onStartChange: e => this.setState({ startInput: e.target.value }),
+      createFile: () => this.createFile(),
+      defragment: () => this.defragment(),
+      hasError: !!error, errorText: error ? error.text : '',
+      viewFiles, fileCount: viewFiles.length, hasFiles: viewFiles.length > 0, hasNoFiles: viewFiles.length === 0,
+      viewBlocks,
+      freeCount, usedCount, totalBlocks: TOTAL_BLOCKS,
+      freePercent: Math.round((freeCount / TOTAL_BLOCKS) * 100),
+      usedPercent: Math.round((usedCount / TOTAL_BLOCKS) * 100),
+      resetMethod: () => this.resetMethod(method),
+      autoRunning: this.state.autoRunning,
+      notAutoRunning: !this.state.autoRunning,
+      runAutoDemo: () => this.runAutoDemo(),
+      stopAutoDemo: () => this.stopAutoDemo(),
+      isReadingActive: isReadingHere,
+      readingFileName: isReadingHere ? (fileById[reading.fileId] ? fileById[reading.fileId].name : '') : '',
+      readingBlockIndex: isReadingHere ? currentBlock : 0,
+      readingStepLabel: isReadingHere ? `${reading.step + 1}/${reading.total}` : '',
+      readingTimeMs: isReadingHere ? (reading.timeMs || 0) : 0,
+      diskRotation,
+      seekTransitionMs,
+      armTargetY,
+      activeBlockX,
+      activeBlockY,
+      fatTable,
+      bitmapTable
+    };
+  }
+}
+
+</script>
+</body>
+</html>
